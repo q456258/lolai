@@ -1,0 +1,7 @@
+# local
+local.env
+
+# virtual env
+.venv
+/venv
+venv
