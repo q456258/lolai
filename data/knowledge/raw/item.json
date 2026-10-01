@@ -1,0 +1,106 @@
+[
+  {
+    "id": "lol-item-3140-overview",
+    "title": "Quicksilver Sash — Overview",
+    "text": "Quicksilver Sash, commonly called QSS, is an epic League of Legends item. It grants 30 magic resistance. Its Quicksilver active removes crowd-control debuffs from the user's champion, except airborne effects, and has a 90-second cooldown. A champion is limited to one Quicksilver item.",
+    "metadata": {
+      "entity_type": "item",
+      "item_id": 3140,
+      "item_name": "Quicksilver Sash",
+      "aliases": ["QSS"],
+      "section": "overview",
+      "is_current_information": true,
+      "source_url": "https://wiki.leagueoflegends.com/en-us/Quicksilver_Sash",
+      "retrieved_at": "2026-10-01"
+    }
+  },
+  {
+    "id": "lol-item-3140-purchase",
+    "title": "Quicksilver Sash — Cost and Recipe",
+    "text": "Quicksilver Sash costs 1300 gold and sells for 910 gold. Its recipe consists of Null-Magic Mantle plus a 900-gold combine cost. It builds into Mercurial Scimitar.",
+    "metadata": {
+      "entity_type": "item",
+      "item_id": 3140,
+      "item_name": "Quicksilver Sash",
+      "aliases": ["QSS"],
+      "section": "purchase",
+      "is_current_information": true,
+      "total_cost": 1300,
+      "sell_value": 910,
+      "combine_cost": 900,
+      "components": ["Null-Magic Mantle"],
+      "builds_into": ["Mercurial Scimitar"],
+      "source_url": "https://wiki.leagueoflegends.com/en-us/Quicksilver_Sash",
+      "retrieved_at": "2026-10-01"
+    }
+  },
+  {
+    "id": "lol-item-3140-cleanse-interactions",
+    "title": "Quicksilver Sash — Cleanse Interactions",
+    "text": "Quicksilver Sash removes crowd-control effects including suppression and nearsight, but it cannot remove airborne effects or stasis. Unlike the Cleanse summoner spell, it does not grant tenacity and does not remove summoner-spell debuffs. Quicksilver Sash cannot be activated while the champion is airborne.",
+    "metadata": {
+      "entity_type": "item",
+      "item_id": 3140,
+      "item_name": "Quicksilver Sash",
+      "aliases": ["QSS"],
+      "section": "interactions",
+      "is_current_information": true,
+      "removes": ["suppression", "nearsight", "crowd control"],
+      "does_not_remove": ["airborne", "stasis"],
+      "source_url": "https://wiki.leagueoflegends.com/en-us/Quicksilver_Sash",
+      "retrieved_at": "2026-10-01"
+    }
+  },
+  {
+    "id": "lol-item-3140-availability",
+    "title": "Quicksilver Sash — Availability",
+    "text": "Quicksilver Sash is available on Summoner's Rift, Howling Abyss ARAM, and Nexus Blitz. It is categorized for fighters, marksmen, assassins, and magic-resistance builds.",
+    "metadata": {
+      "entity_type": "item",
+      "item_id": 3140,
+      "item_name": "Quicksilver Sash",
+      "aliases": ["QSS"],
+      "section": "availability",
+      "is_current_information": true,
+      "maps": ["Summoner's Rift", "Howling Abyss", "Nexus Blitz"],
+      "categories": [
+        "Fighter",
+        "Marksman",
+        "Assassin",
+        "Magic Resistance"
+      ],
+      "source_url": "https://wiki.leagueoflegends.com/en-us/Quicksilver_Sash",
+      "retrieved_at": "2026-10-01"
+    }
+  },
+  {
+    "id": "lol-item-3140-patch-14-15",
+    "title": "Quicksilver Sash — Patch 14.15",
+    "text": "In patch 14.15, the combine cost of Quicksilver Sash increased from 850 gold to 900 gold. Its total cost remained unchanged.",
+    "metadata": {
+      "entity_type": "item_patch_history",
+      "item_id": 3140,
+      "item_name": "Quicksilver Sash",
+      "section": "patch_history",
+      "patch": "14.15",
+      "is_current_information": false,
+      "source_url": "https://wiki.leagueoflegends.com/en-us/Quicksilver_Sash",
+      "retrieved_at": "2026-10-01"
+    }
+  },
+  {
+    "id": "lol-item-3140-patch-14-8",
+    "title": "Quicksilver Sash — Patch 14.8",
+    "text": "In patch 14.8, No longer cleanses Mordekaiser's ability Realm of Death.",
+    "metadata": {
+      "entity_type": "item_patch_history",
+      "item_id": 3140,
+      "item_name": "Quicksilver Sash",
+      "section": "patch_history",
+      "patch": "14.8",
+      "is_current_information": false,
+      "source_url": "https://wiki.leagueoflegends.com/en-us/Quicksilver_Sash",
+      "retrieved_at": "2026-10-01"
+    }
+  }
+]
