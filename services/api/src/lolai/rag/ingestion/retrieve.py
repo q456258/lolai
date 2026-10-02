@@ -1,36 +1,34 @@
 import ollama
-from qdrant_client import QdrantClient, models
+from lolai.client.RAGClient import RAGClient
 
-DATABASE_PATH = r"C:\programming\lolai\vector_db"
-COLLECTION_NAME = "items"
-MODEL_NAME = "qwen3-embedding:4b"
+class retrieve:
+    def __init__(self, rag: RAGClient):
+        self.client = rag.client
+        self.model = rag.model
 
-question = input("Question: ")
+    def emb(self, collection_name: str):
+        question = input("Question: ")
 
-query_vector = ollama.embed(
-    model=MODEL_NAME,
-    input=question,
-).embeddings[0]
+        query_vector = ollama.embed(
+            model=self.model,
+            input=question,
+        ).embeddings[0]
 
-client = QdrantClient(path=DATABASE_PATH)
+        results = self.client.query_points(
+            collection_name=collection_name,
+            query=query_vector,
+            # query_filter=models.Filter(
+            #     must=[
+            #         models.FieldCondition(
+            #             key="is_current_information",
+            #             match=models.MatchValue(value=False),
+            #         )
+            #     ]
+            # ),
+            limit=5,
+        ).points
 
-results = client.query_points(
-    collection_name=COLLECTION_NAME,
-    query=query_vector,
-    # query_filter=models.Filter(
-    #     must=[
-    #         models.FieldCondition(
-    #             key="is_current_information",
-    #             match=models.MatchValue(value=False),
-    #         )
-    #     ]
-    # ),
-    limit=5,
-).points
-
-for result in results:
-    print(f"\nScore: {result.score:.3f}")
-    print(result.payload["title"])
-    print(result.payload["text"])
-
-client.close()
+        for result in results:
+            print(f"\nScore: {result.score:.3f}")
+            print(result.payload["title"])
+            print(result.payload["text"])
