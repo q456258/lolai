@@ -6,9 +6,7 @@ class retrieve:
         self.client = rag.client
         self.model = rag.model
 
-    def emb(self, collection_name: str):
-        question = input("Question: ")
-
+    def emb(self, collection_name: str, question: str):
         query_vector = ollama.embed(
             model=self.model,
             input=question,
