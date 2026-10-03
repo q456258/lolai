@@ -25,8 +25,9 @@ class retrieve:
             # ),
             limit=5,
         ).points
-
-        for result in results:
-            print(f"\nScore: {result.score:.3f}")
-            print(result.payload["title"])
-            print(result.payload["text"])
+        
+        return results
+        # for result in results:
+        #     print(f"\nScore: {result.score:.3f}")
+        #     print(result.payload["title"])
+        #     print(result.payload["text"])
