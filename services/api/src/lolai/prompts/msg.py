@@ -2,7 +2,7 @@ from langchain_core.prompts import PromptTemplate, ChatPromptTemplate, MessagesP
 from langchain_ollama import OllamaLLM
 from langchain_core.output_parsers import StrOutputParser
 
-class messageTemplate:
+class MessageTemplate:
 
     def fact(self) -> list[str]:
         messages = [

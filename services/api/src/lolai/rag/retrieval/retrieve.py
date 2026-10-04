@@ -1,7 +1,7 @@
 import ollama
 from lolai.client.RAGClient import RAGClient
 
-class retrieve:
+class Retrieve:
     def __init__(self, rag: RAGClient):
         self.client = rag.client
         self.model = rag.model
