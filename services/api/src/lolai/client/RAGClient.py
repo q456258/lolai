@@ -1,8 +1,10 @@
-from qdrant_client import QdrantClient, models
+from qdrant_client import QdrantClient
+
+from lolai.domain.enums.model import Model
 
 DATABASE_PATH = r"C:\programming\lolai\vector_db"
 COLLECTION_NAME = "items"
-MODEL_NAME = "qwen3-embedding:4b"
+MODEL_NAME = Model.QWEN_EMBED.value
 
 class RAGClient:
     def __init__(
