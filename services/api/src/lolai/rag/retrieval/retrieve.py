@@ -1,12 +1,13 @@
 import ollama
 from lolai.client.RAGClient import RAGClient
+from lolai.rag.retrieval.reranker import Reranker
 
 class Retrieve:
     def __init__(self, rag: RAGClient):
         self.client = rag.client
         self.model = rag.model
 
-    def emb(self, collection_name: str, question: str):
+    def emb(self, collection_name: str, question: str, limit: int = 5):
         query_vector = ollama.embed(
             model=self.model,
             input=question,
@@ -23,8 +24,11 @@ class Retrieve:
             #         )
             #     ]
             # ),
-            limit=5,
+            limit=limit,
         ).points
+
+        reranker = Reranker(evidence_limit=3, relevent_threshold=2)
+        results = reranker.rerank(question, results, self.client)
         
         return results
         # for result in results:
