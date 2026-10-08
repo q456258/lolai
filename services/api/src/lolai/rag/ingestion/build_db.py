@@ -151,6 +151,7 @@ class Vector_db:
             "title": title,
             "text": text,
             "metadata": {
+                "entity_name": "champion",
                 "name": id,
                 "tags": tags,
                 "partype": partype,
