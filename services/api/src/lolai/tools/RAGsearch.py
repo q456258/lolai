@@ -14,13 +14,13 @@ def create_search_tool(ragClient: RAGClient):
 
         evidence = []
         for result in results:
-            payload = result.payload or {}
             evidence.append(
                 {
-                    "score": round(result.score, 4),
-                    "title": payload.get("title"),
-                    "text": payload.get("text"),
-                    "source": payload.get("source")
+                    "retrieval_score": round(result["retrieval_score"], 4),
+                    "relevent_score": result["relevent_score"],
+                    "title": result.get("title"),
+                    "text": result.get("text"),
+                    "source": result.get("source")
                 }
             )
 
