@@ -90,7 +90,8 @@ class Reranker:
                     "retrieval_score": result.score,
                     "relevent_score": score["relevent_score"],
                     "answer_question": score["answer_question"],
-                    "version": result.payload["version"]
+                    "version": result.payload.get("version") or None,
+                    "source": "lol_knowledge: {type} : {name}".format(type=result.payload["entity_name"], name=result.payload["title"])
                 } 
             )
 
@@ -111,3 +112,4 @@ class Reranker:
         )
 
         accepted = accepted[:self.evidence_limit]
+        return accepted
