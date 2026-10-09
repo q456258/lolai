@@ -1,5 +1,8 @@
 # local
 local.env
+/vector_db
+*.pyc
+services/api/src/lolai_api.egg-info
 
 # virtual env
 .venv

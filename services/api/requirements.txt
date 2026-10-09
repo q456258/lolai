@@ -1,0 +1,6 @@
+langchain-core
+langchain-ollama
+ollama
+openai
+python-dotenv
+qdrant-client
