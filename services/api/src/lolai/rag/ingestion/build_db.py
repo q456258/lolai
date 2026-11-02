@@ -91,13 +91,23 @@ class Vector_db:
             data = json["data"]
             version = json["version"]
             records = [
-                self.formatChampion(champion, version)
+                record
                 for id, champion in data.items()
+                for record in self.formatChampion(champion, version)
             ]
 
         return records
 
     def formatChampion(self, champion: dict, version: str) -> dict:
+        records = [
+            self.formatChampionOverview(champion, version),
+        ]
+        for record in self.formatChampionSpell(champion, version):
+            records.append(record)
+
+        return records
+
+    def formatChampionOverview(self, champion, version):
         id = champion["id"]
         key = champion["key"]
         title = champion["title"]
@@ -138,26 +148,67 @@ class Vector_db:
                 f"partype: {partype}",
                 f"info: {info_value}",
                 f"stats: {stats_value}",
-                f"spellQ: {spell_value[0]}",
-                f"spellW: {spell_value[1]}",
-                f"spellE: {spell_value[2]}",
-                f"spellR: {spell_value[3]}",
-                f"passive: {passive_value}",
             ]
         )
 
+        document_id = f"{key}:overview"
         return {
             "point_id": key,
             "title": title,
             "text": text,
             "metadata": {
                 "entity_name": "champion",
+                "document_id": document_id,
                 "name": id,
                 "tags": tags,
                 "partype": partype,
                 "info": info,
             }
         }
+    
+    def formatChampionSpell(self, champion, version):
+        id = champion["id"]
+        key = champion["key"]
+        title = champion["title"]
+        partype = champion["partype"]
+        tags = champion.get("tags", [])
+        info = champion.get("info", {})
+        spells = champion.get("spells", [])
+        passive = champion.get("passive", {})
+
+
+        spell_value = [
+            (
+                f"id={spell['id']}, "
+                f"name={spell['name']}"
+                f"description={spell['description']}"
+            )
+            for spell in spells
+        ]
+
+        passive_value = f"name={passive['name']},description={passive['description']}"
+        spell_value.append(passive_value)
+
+        spellType = ["spellQ","spellW","spellE","spellR","passive"]
+
+        records = []
+        for type, text in zip(spellType, spell_value):
+            records.append( {
+                "point_id": key,
+                "title": title,
+                "text": text,
+                "metadata": {
+                    "entity_name": "champion",
+                    "document_id": f"{key}:{type}",
+                    "name": id,
+                    "tags": tags,
+                    "partype": partype,
+                    "info": info,
+                }
+            })
+
+
+        return records
     
     def formatItem(self, item_id: str, item: dict, version: str) -> dict:
         into = item.get("into", [])
