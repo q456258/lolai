@@ -52,9 +52,13 @@ class Vector_db:
         points = []
 
         for record, vector in zip(records, vectors):
+            point_id = uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                record["point_id"],
+            )
             points.append(
                 models.PointStruct(
-                    id=int(record["point_id"]),
+                    id=str(point_id),
                     vector=vector,
                     payload={
                         **record.get("metadata", {}),
@@ -153,7 +157,7 @@ class Vector_db:
 
         document_id = f"{key}:overview"
         return {
-            "point_id": key,
+            "point_id": document_id,
             "title": title,
             "text": text,
             "metadata": {
@@ -179,14 +183,21 @@ class Vector_db:
 
         spell_value = [
             (
+                f"parentId={id}, "
+                f"championTitle={title}, "
                 f"id={spell['id']}, "
-                f"name={spell['name']}"
+                f"name={spell['name']}, "
                 f"description={spell['description']}"
             )
             for spell in spells
         ]
 
-        passive_value = f"name={passive['name']},description={passive['description']}"
+        passive_value = (
+            f"parentId={id}, "
+            f"championTitle={title}, "
+            f"name={passive['name']}, "
+            f"description={passive['description']}"
+        )
         spell_value.append(passive_value)
 
         spellType = ["spellQ","spellW","spellE","spellR","passive"]
@@ -194,11 +205,12 @@ class Vector_db:
         records = []
         for type, text in zip(spellType, spell_value):
             records.append( {
-                "point_id": key,
+                "point_id": f"{key}:{type}",
                 "title": title,
                 "text": text,
                 "metadata": {
                     "entity_name": "champion",
+                    "parent_id": f"{key}:overview",
                     "document_id": f"{key}:{type}",
                     "name": id,
                     "tags": tags,
