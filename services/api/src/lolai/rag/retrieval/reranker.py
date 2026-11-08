@@ -99,7 +99,7 @@ class Reranker:
         accepted = [
             candidate
             for candidate in candidates
-            if candidate["relevent_score"] > self.relevent_threshold
+            if candidate["relevent_score"] >= self.relevent_threshold
               or candidate["answer_question"]
         ]
 
