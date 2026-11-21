@@ -53,7 +53,7 @@ class Score:
     reason: str
 
 class Reranker:
-    def __init__(self, evidence_limit: 3, relevent_threshold: 50):
+    def __init__(self, evidence_limit: 6, relevent_threshold: 50):
         self.evidence_limit = evidence_limit
         self.relevent_threshold = relevent_threshold
 
