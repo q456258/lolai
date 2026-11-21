@@ -6,6 +6,8 @@ from qdrant_client import models
 from lolai.client.RAGClient import RAGClient
 from pathlib import Path
 from lolai.domain.enums.type import Type
+from lolai.rag.ingestion.champion import Champion
+from lolai.rag.ingestion.item import Item
 
 class Vector_db:
     def __init__(self, rag: RAGClient):
@@ -88,7 +90,7 @@ class Vector_db:
             data = json["data"]
             version = json["version"]
             records = [
-                self.formatItem(id, item, version)
+                Item().formatItem(id, item, version)
                 for id, item in data.items()
             ]
         elif dataType is Type.CHAMPION:
@@ -97,167 +99,7 @@ class Vector_db:
             records = [
                 record
                 for id, champion in data.items()
-                for record in self.formatChampion(champion, version)
+                for record in Champion().formatChampion(champion, version)
             ]
 
         return records
-
-    def formatChampion(self, champion: dict, version: str) -> dict:
-        records = [
-            self.formatChampionOverview(champion, version),
-        ]
-        for record in self.formatChampionSpell(champion, version):
-            records.append(record)
-
-        return records
-
-    def formatChampionOverview(self, champion, version):
-        id = champion["id"]
-        key = champion["key"]
-        title = champion["title"]
-        partype = champion["partype"]
-        allyTips = champion.get("allyTips", [])
-        enemytips = champion.get("enemytips", [])
-        tags = champion.get("tags", [])
-        skins = champion.get("skins", {})
-        info = champion.get("info", {})
-        stats = champion.get("stats", {})
-        spells = champion.get("spells", [])
-        passive = champion.get("passive", {})
-
-
-        info_value = ", ".join(f'{k}:{v}' for k,v in info.items())
-        stats_value = ", ".join(f'{k}:{v}' for k,v in stats.items())
-        spell_value = [
-            (
-                f"id={spell['id']}, "
-                f"name={spell['name']}"
-                f"description={spell['description']}"
-            )
-            for spell in spells
-        ]
-        passive_value = f"name={passive['name']},description={passive['description']}"
-
-        text = "\n".join(
-            [
-                f"id: {id}",
-                f"key: {key}",
-                f"name: {champion["name"]}",
-                f"title: {title}",
-                f"lore: {champion["lore"]}",
-                f"blurb: {champion["blurb"]}",
-                f"allyTips: {','.join(allyTips)}",
-                f"enemytips: {','.join(enemytips)}",
-                f"tags: {','.join(tags)}",
-                f"partype: {partype}",
-                f"info: {info_value}",
-                f"stats: {stats_value}",
-            ]
-        )
-
-        document_id = f"{key}:overview"
-        return {
-            "point_id": document_id,
-            "title": title,
-            "text": text,
-            "metadata": {
-                "entity_name": "champion",
-                "document_id": document_id,
-                "name": id,
-                "tags": tags,
-                "partype": partype,
-                "info": info,
-            }
-        }
-    
-    def formatChampionSpell(self, champion, version):
-        id = champion["id"]
-        key = champion["key"]
-        title = champion["title"]
-        partype = champion["partype"]
-        tags = champion.get("tags", [])
-        info = champion.get("info", {})
-        spells = champion.get("spells", [])
-        passive = champion.get("passive", {})
-
-
-        spell_value = [
-            (
-                f"parentId={id}, "
-                f"championTitle={title}, "
-                f"id={spell['id']}, "
-                f"name={spell['name']}, "
-                f"description={spell['description']}"
-            )
-            for spell in spells
-        ]
-
-        passive_value = (
-            f"parentId={id}, "
-            f"championTitle={title}, "
-            f"name={passive['name']}, "
-            f"description={passive['description']}"
-        )
-        spell_value.append(passive_value)
-
-        spellType = ["spellQ","spellW","spellE","spellR","passive"]
-
-        records = []
-        for type, text in zip(spellType, spell_value):
-            records.append( {
-                "point_id": f"{key}:{type}",
-                "title": title,
-                "text": text,
-                "metadata": {
-                    "entity_name": "champion",
-                    "parent_id": f"{key}:overview",
-                    "document_id": f"{key}:{type}",
-                    "name": id,
-                    "tags": tags,
-                    "partype": partype,
-                    "info": info,
-                }
-            })
-
-
-        return records
-    
-    def formatItem(self, item_id: str, item: dict, version: str) -> dict:
-        into = item.get("into", [])
-        tags = item.get("tags", [])
-        gold = item.get("gold",{})
-        maps = item.get("maps", {})
-        stats = item.get("stats", {})
-
-        gold_value = ', '.join(f'{k}:{v}' for k,v in gold.items())
-        maps_value = ', '.join(f'{k}:{v}' for k,v in maps.items())
-        stats_value = ', '.join(f'{k}:{v}' for k,v in stats.items())
-        text = "\n".join(
-            [
-                f"name: {item["name"]}",
-                f"type: item",
-                f"description: {item["description"]}",
-                f"plaintext: {item["plaintext"]}",
-                f"into: {', '.join(into)}"
-                f"gold: {gold_value}",
-                f"tags: {', '.join(tags)}"
-                f"maps: {maps_value}",
-                f"stats: {stats_value}",
-            ]
-        )
-
-        return {
-            "point_id": item_id,
-            "title": item["name"],
-            "text": text,
-            "metadata": {
-                "entity_name": "item",
-                "version": version,
-                "item_id": item_id,
-                "into": into,
-                "tags": tags,
-                "gold": gold,
-                "maps": maps,
-                "stats": stats,
-            }
-        }
