@@ -63,13 +63,29 @@ class Overlay:
             w.bind("<ButtonPress-1>", self._drag_start)
             w.bind("<B1-Motion>", self._drag)
 
+        # Bottom strip: augments the player has recorded this game.
+        mine_bar = tk.Frame(self.root, bg="#232637")
+        mine_bar.pack(side="bottom", fill="x")
+        self.mine = tk.Label(mine_bar, text="", fg="#e6e8f2", bg="#232637", font=("Segoe UI", 9),
+                             anchor="w", justify="left", wraplength=WIDTH - 130)
+        self.mine.pack(side="left", padx=8, pady=4, fill="x", expand=True)
+        tk.Button(mine_bar, text="Clear", command=self.clear_picks, relief="flat", bg="#232637",
+                  fg="#9aa3c7", font=("Segoe UI", 8)).pack(side="right", padx=2)
+        tk.Button(mine_bar, text="Undo", command=self.undo_pick, relief="flat", bg="#232637",
+                  fg="#9aa3c7", font=("Segoe UI", 8)).pack(side="right", padx=2)
+
         self.text = tk.Text(self.root, wrap="word", bg="#14161f", fg="#e6e8f2", bd=0,
                             font=("Segoe UI", 10), padx=10, pady=8, state="disabled")
         self.text.pack(fill="both", expand=True)
         self._show_text("Champion advice appears automatically in champ select.\n\n"
-                        "When augment cards show up in game, press F8.")
+                        "When augment cards show up in game, press F8, then click the one you took.")
+        # "I picked this one" buttons; packed above the text only while cards are on offer.
+        self.pick_frame = tk.Frame(self.root, bg="#14161f")
 
-        self.ui_queue: queue.Queue[tuple[str, str]] = queue.Queue()
+        self.picked: list[str] = []   # augments chosen this game; reset when the next champ select starts
+        self._refresh_picked()
+
+        self.ui_queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self.busy_augments = threading.Event()
         self.hidden = False
         self._dx = self._dy = 0
@@ -92,12 +108,50 @@ class Overlay:
         self.text.insert("1.0", s)
         self.text.configure(state="disabled")
 
+    # ---- recorded augments
+    def _refresh_picked(self) -> None:
+        shown = " › ".join(self.picked) if self.picked else "none yet"
+        self.mine.configure(text=f"My augments: {shown}")
+
+    def _show_offered(self, names: list[str]) -> None:
+        for child in self.pick_frame.winfo_children():
+            child.destroy()
+        if not names:
+            self.pick_frame.pack_forget()
+            return
+        for name in names:
+            tk.Button(self.pick_frame, text=f"I picked: {name}", anchor="w", relief="flat",
+                      bg="#2c3050", fg="white", font=("Segoe UI", 9),
+                      command=lambda n=name: self.pick(n)).pack(fill="x", padx=8, pady=1)
+        self.pick_frame.pack(fill="x", before=self.text)
+
+    def pick(self, name: str) -> None:
+        if name not in self.picked:
+            self.picked.append(name)
+        self._refresh_picked()
+        self._show_offered([])
+        self.status.configure(text=f"Recorded: {name}")
+
+    def undo_pick(self) -> None:
+        if self.picked:
+            self.picked.pop()
+            self._refresh_picked()
+
+    def clear_picks(self) -> None:
+        self.picked.clear()
+        self._refresh_picked()
+        self._show_offered([])
+
     def _drain(self) -> None:
         try:
             while True:
                 kind, value = self.ui_queue.get_nowait()
                 if kind == "status":
                     self.status.configure(text=value)
+                elif kind == "offered":
+                    self._show_offered(value)
+                elif kind == "new_game":
+                    self.clear_picks()
                 else:
                     self._show_text(value)
                     if self.hidden:
@@ -113,6 +167,12 @@ class Overlay:
     def set_text(self, s: str) -> None:
         self.ui_queue.put(("text", s))
 
+    def set_offered(self, names: list[str]) -> None:
+        self.ui_queue.put(("offered", names))
+
+    def new_game(self) -> None:
+        self.ui_queue.put(("new_game", None))
+
     # ---- augments (F8)
     def request_augments(self) -> None:
         if self.busy_augments.is_set():
@@ -125,8 +185,9 @@ class Overlay:
             self.set_status("Reading augment cards…")
             shot = capture_screen()  # grab first: the cards must still be on screen
             t0 = time.time()
-            advice = advisor.advise_augments(shot, read_live_game())
+            advice = advisor.advise_augments(shot, read_live_game(), list(self.picked))
             self.set_text(advisor.format_augments(advice))
+            self.set_offered([o.name for o in advice.options])
             self.set_status(f"Augments analysed in {time.time() - t0:.0f}s")
         except Exception as e:  # show any failure in the overlay rather than dying silently
             self.set_status("Augment analysis failed")
@@ -139,9 +200,14 @@ def champ_select_loop(ui: Overlay) -> None:
     lcu = Lcu()
     last_key = analysed_key = None
     changed_at = 0.0
+    prev_phase = None
     while True:
         try:
             phase = lcu.phase()
+            if phase == "ChampSelect" and prev_phase != "ChampSelect":
+                ui.new_game()  # a new game is starting: forget last game's augments
+            if phase is not None:
+                prev_phase = phase
             if phase is None:
                 ui.set_status("League client not found")
             elif phase != "ChampSelect":
