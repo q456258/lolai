@@ -9,11 +9,15 @@ from __future__ import annotations
 import os
 import time
 from collections import deque
+from pathlib import Path
 from urllib.parse import quote
 
 import requests
+from dotenv import load_dotenv
 
-API_KEY_PLACEHOLDER = "RGAPI-98a449ec-82ee-4268-9d3d-62fe07ff794d"  # <-- replace via RIOT_API_KEY, never commit a real key
+load_dotenv(Path(__file__).resolve().parents[6] / "local.env")  # same file orchestrator.py loads
+
+API_KEY_PLACEHOLDER = "RGAPI-your-key-here"  # set the real key as RIOT_API_KEY in local.env, never here
 
 # Personal-key limits: 20 requests / 1s and 100 requests / 2min.
 RATE_LIMITS = [(20, 1.0), (100, 120.0)]
