@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from lolai.domain.enums.model import Model
 from lolai.integrations.riot.models import ChampSelect, LiveGame
+from lolai.integrations.riot.opgg.opgg import connect, match_name
 
 
 # ---- champion selection ----------------------------------------------------------------
@@ -93,10 +94,11 @@ _AUGMENT_SYSTEM = (
 )
 
 
-def _augment_prompt(game: LiveGame | None) -> str:
+def _augment_prompt(game: LiveGame | None, owned: list[str]) -> str:
+    chosen = f"Augments I already chose (consider synergy): {', '.join(owned) or 'none yet'}\n"
     if game is None:
-        return "Game context unavailable. Pick the generally strongest augment."
-    return (
+        return chosen + "Game context unavailable. Pick the generally strongest augment."
+    return chosen + (
         f"My champion: {game.my_champion} (level {game.level})\n"
         f"My items: {', '.join(i for i in game.my_items if i) or 'none'}\n"
         f"Allies: {', '.join(game.allies)}\n"
@@ -104,21 +106,45 @@ def _augment_prompt(game: LiveGame | None) -> str:
     )
 
 
-def advise_augments(screenshot: bytes, game: LiveGame | None) -> AugmentAdvice:
+def advise_augments(screenshot: bytes, game: LiveGame | None, owned: list[str] | None = None) -> AugmentAdvice:
     res = chat(
         model=Model.QWEN_VL.value,
         messages=[
             {"role": "system", "content": _AUGMENT_SYSTEM},
-            {"role": "user", "content": _augment_prompt(game), "images": [screenshot]},
+            {"role": "user", "content": _augment_prompt(game, owned or []), "images": [screenshot]},
         ],
         format=AugmentAdvice.model_json_schema(),
     )
-    return AugmentAdvice.model_validate_json(res.message.content)
+    return _verify_augments(AugmentAdvice.model_validate_json(res.message.content))
+
+
+def _verify_augments(advice: AugmentAdvice) -> AugmentAdvice:
+    """Keep only cards whose name matches an augment in the database (name or name_norm).
+
+    Anything else the vision model "read" is not an augment (or was misread) and is dropped."""
+    con = connect()
+    try:
+        if not con.execute("SELECT 1 FROM augments LIMIT 1").fetchone():
+            raise RuntimeError("Augment database is empty. Run: python -m lolai.integrations.riot.opgg.opgg load")
+        kept: dict[str, AugmentOption] = {}
+        for o in advice.options:
+            name = match_name(con, o.name)
+            if name and name not in kept:
+                kept[name] = o.model_copy(update={"name": name})
+        best = match_name(con, advice.best)
+    finally:
+        con.close()
+    if not kept:
+        return AugmentAdvice(options=[], best="", reason="")
+    if best not in kept:  # the model's pick was dropped: fall back to the top-scored verified card
+        top = max(kept.values(), key=lambda o: o.score)
+        return AugmentAdvice(options=list(kept.values()), best=top.name, reason=top.pros)
+    return AugmentAdvice(options=list(kept.values()), best=best, reason=advice.reason)
 
 
 def format_augments(a: AugmentAdvice) -> str:
     if not a.options:
-        return "No augment cards detected. Press F8 when the cards are on screen."
+        return "No known augment cards detected. Press F8 when the cards are on screen."
     lines = [f"★ PICK: {a.best}", f"  {a.reason}", ""]
     for o in sorted(a.options, key=lambda o: -o.score):
         lines += [f"{o.name}  [{o.score}/10]", f"  + {o.pros}", f"  - {o.cons}", ""]
