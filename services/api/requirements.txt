@@ -4,3 +4,10 @@ ollama
 openai
 python-dotenv
 qdrant-client
+anthropic>=2.12
+pydantic>=2
+requests
+psutil
+mss
+Pillow
+pynput
