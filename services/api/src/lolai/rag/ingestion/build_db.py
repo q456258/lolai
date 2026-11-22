@@ -8,6 +8,7 @@ from pathlib import Path
 from lolai.domain.enums.type import Type
 from lolai.rag.ingestion.champion import Champion
 from lolai.rag.ingestion.item import Item
+from lolai.rag.ingestion.status import Status
 
 class Vector_db:
     def __init__(self, rag: RAGClient):
@@ -100,6 +101,12 @@ class Vector_db:
                 record
                 for id, champion in data.items()
                 for record in Champion().formatChampion(champion, version)
+            ]
+        elif dataType is Type.STATUS:
+            data = json["data"]
+            records = [
+                Status().formatStatus(record)
+                for record in data
             ]
 
         return records

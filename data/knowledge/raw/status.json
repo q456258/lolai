@@ -1,0 +1,173 @@
+{
+  "type":"status",
+  "data": [
+    {
+      "name": "Airborne",
+      "url": "https://wiki.leagueoflegends.com/en-us/Airborne",
+      "parent": null,
+      "description": "A unit that is airborne is unable to move, attack, cast abilities, or use item actives for the duration."
+    },
+    {
+      "name": "Knock aside",
+      "url": null,
+      "parent": "Airborne",
+      "description": "A knock aside causes the unit to be made airborne in a direction perpendicular to the direction of cast. (Parent: Airborne)"
+    },
+    {
+      "name": "Knock back",
+      "url": null,
+      "parent": "Airborne",
+      "description": "A knock back causes the unit to be made airborne in a direction away from the point of cast. (Parent: Airborne)"
+    },
+    {
+      "name": "Knock up",
+      "url": null,
+      "parent": "Airborne",
+      "description": "A knock up causes the unit to be made airborne on the spot. (Parent: Airborne)"
+    },
+    {
+      "name": "Pull",
+      "url": null,
+      "parent": "Airborne",
+      "description": "A pull causes the unit to be made airborne in a direction towards the point of cast. (Parent: Airborne)"
+    },
+    {
+      "name": "Blind",
+      "url": "https://wiki.leagueoflegends.com/en-us/Blind",
+      "parent": null,
+      "description": "A unit that is blinded will miss its basic attacks for the duration. Miss occurs on-hit, and does not prevent attacks from being declared."
+    },
+    {
+      "name": "Cripple",
+      "url": "https://wiki.leagueoflegends.com/en-us/Cripple",
+      "parent": null,
+      "description": "A unit that is crippled has reduced attack speed for the duration."
+    },
+    {
+      "name": "Disarm",
+      "url": "https://wiki.leagueoflegends.com/en-us/Disarm",
+      "parent": null,
+      "description": "A unit that is disarmed cannot declare basic attacks for the duration."
+    },
+    {
+      "name": "Disrupt",
+      "url": "https://wiki.leagueoflegends.com/en-us/Types_of_Crowd_Control#Disrupt",
+      "parent": null,
+      "description": "A unit that is disrupted has its channeled and charged abilities interrupted."
+    },
+    {
+      "name": "Drowsy",
+      "url": "https://wiki.leagueoflegends.com/en-us/Types_of_Crowd_Control#Drowsy",
+      "parent": null,
+      "description": "A unit that is drowsy is gradually slowed over the duration, falling asleep thereafter."
+    },
+    {
+      "name": "Sleep",
+      "url": "https://wiki.leagueoflegends.com/en-us/Types_of_Crowd_Control#Sleep",
+      "parent": "Drowsy",
+      "description": "A unit that is asleep is unable to move, attack, cast abilities, or use item actives for the duration as long as it doesn't get damaged. (Parent: Drowsy)"
+    },
+    {
+      "name": "Forced Action",
+      "url": null,
+      "parent": null,
+      "description": "A unit that is under the effect of a forced action cannot control its own movement or attacks and is unable to cast abilities or use item actives."
+    },
+    {
+      "name": "Berserk",
+      "url": "https://wiki.leagueoflegends.com/en-us/Berserk",
+      "parent": "Forced Action",
+      "description": "A unit that is berserk will attempt to basic attack a nearby unit for the duration. (Parent: Forced Action)"
+    },
+    {
+      "name": "Charm",
+      "url": "https://wiki.leagueoflegends.com/en-us/Charm",
+      "parent": "Forced Action",
+      "description": "A unit that is charmed will move toward the source with reduced movement speed for the duration. (Parent: Forced Action)"
+    },
+    {
+      "name": "Flee",
+      "url": "https://wiki.leagueoflegends.com/en-us/Flee",
+      "parent": "Forced Action",
+      "description": "A unit that is fleeing will move directly away from the source with reduced movement speed for the duration. (Parent: Forced Action)"
+    },
+    {
+      "name": "Taunt",
+      "url": "https://wiki.leagueoflegends.com/en-us/Taunt",
+      "parent": "Forced Action",
+      "description": "A unit that is taunted will attempt to basic attack the source for the duration. (Parent: Forced Action)"
+    },
+    {
+      "name": "Ground",
+      "url": "https://wiki.leagueoflegends.com/en-us/Ground",
+      "parent": null,
+      "description": "A unit that is grounded is unable to activate mobility spells for the duration."
+    },
+    {
+      "name": "Kinematics",
+      "url": "https://wiki.leagueoflegends.com/en-us/Kinematics",
+      "parent": null,
+      "description": "A unit affected by kinematics is dragged to a unit or location."
+    },
+    {
+      "name": "Knockdown",
+      "url": "https://wiki.leagueoflegends.com/en-us/Knockdown",
+      "parent": null,
+      "description": "A unit that is knocked down has its dash or displacement interrupted and is placed on the ground."
+    },
+    {
+      "name": "Nearsight",
+      "url": "https://wiki.leagueoflegends.com/en-us/Nearsight",
+      "parent": null,
+      "description": "A unit that is nearsighted has their sight radius reduced and loses their allied vision for the duration."
+    },
+    {
+      "name": "Root",
+      "url": "https://wiki.leagueoflegends.com/en-us/Root",
+      "parent": null,
+      "description": "A unit that is rooted is unable to control its movement or activate mobility spells for the duration."
+    },
+    {
+      "name": "Silence",
+      "url": "https://wiki.leagueoflegends.com/en-us/Silence",
+      "parent": null,
+      "description": "A unit that is silenced cannot cast abilities or use item actives for the duration."
+    },
+    {
+      "name": "Polymorph",
+      "url": "https://wiki.leagueoflegends.com/en-us/Types_of_Crowd_Control#Polymorph",
+      "parent": "Silence",
+      "description": "A unit that is polymorphed is silenced and turned into a critter. The only example also applies disarm and reduces movement speed for the duration. (Parent: Silence)"
+    },
+    {
+      "name": "Slow",
+      "url": "https://wiki.leagueoflegends.com/en-us/Slow",
+      "parent": null,
+      "description": "A unit that is slowed has reduced movement speed for the duration."
+    },
+    {
+      "name": "Stasis",
+      "url": "https://wiki.leagueoflegends.com/en-us/Types_of_Crowd_Control#Stasis",
+      "parent": null,
+      "description": "A unit that is in stasis is unable to move, attack, cast abilities, or use item actives or summoner spells while being untargetable and invulnerable for the duration."
+    },
+    {
+      "name": "Stun",
+      "url": "https://wiki.leagueoflegends.com/en-us/Stun",
+      "parent": null,
+      "description": "A unit that is stunned is unable to move, attack, cast abilities, or use item actives for the duration."
+    },
+    {
+      "name": "Suspension",
+      "url": "https://wiki.leagueoflegends.com/en-us/Types_of_Crowd_Control#Suspension",
+      "parent": "Stun",
+      "description": "A unit that is suspended is stunned and pretends to be airborne. (Parent: Stun)"
+    },
+    {
+      "name": "Suppression",
+      "url": "https://wiki.leagueoflegends.com/en-us/Types_of_Crowd_Control#Suppression",
+      "parent": null,
+      "description": "A unit that is suppressed is unable to move, attack, cast abilities, or use item actives or summoner spells for the duration."
+    }
+  ]
+}
