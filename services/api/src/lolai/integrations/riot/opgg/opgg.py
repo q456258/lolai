@@ -204,6 +204,27 @@ def match_name(con: sqlite3.Connection, text: str, fuzzy: bool = True) -> str | 
     return scored[0][1]
 
 
+def rank_cards(con: sqlite3.Connection, champion_slug: str | None, names: list[str],
+               patch: str | None = None) -> list[dict]:
+    """Look up on-screen augment cards for a champion, straight from the database (no model involved).
+
+    `names` must be canonical (see match_name). Cards keep the order of `names` (the on-screen order,
+    left to right); a card without stats for this champion has tier None. Descriptions have op.gg's
+    markup stripped."""
+    patch = patch or latest_patch(con)
+    cards = []
+    for name in names:
+        row = con.execute(
+            """SELECT a.name, a.rarity, a.description, s.tier, s.performance, s.pick_rate
+               FROM augments a LEFT JOIN augment_stats s
+                 ON s.augment_id = a.id AND s.patch=? AND s.mode=? AND s.champion_slug=?
+               WHERE a.name = ?""", (patch, MODE, champion_slug, name)).fetchone()
+        if row:
+            cards.append({"name": row[0], "rarity": row[1], "desc": re.sub(r"<[^>]+>", "", row[2] or ""),
+                          "tier": row[3], "performance": row[4], "pick_rate": row[5]})
+    return cards
+
+
 def stats_for(con: sqlite3.Connection, champion_slug: str, augment_name: str, patch: str | None = None):
     """Stored stats for one augment on one champion, or None. Matches the name after normalising."""
     patch = patch or latest_patch(con)

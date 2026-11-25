@@ -30,6 +30,17 @@ def champ_name(key: int) -> str:
         return f"Champion#{key}"
 
 
+def champ_slug(name: str) -> str | None:
+    """Display name -> op.gg slug (lowercase Data Dragon id), e.g. "Wukong" -> "monkeyking"."""
+    try:
+        for champ_id, display in _load()[1].items():
+            if display == name:
+                return champ_id.lower()
+    except requests.RequestException:
+        pass
+    return None
+
+
 def champ_name_from_id(champ_id: str) -> str:
     """Data Dragon id (as used by the live client), e.g. "MonkeyKing" -> "Wukong"."""
     try:

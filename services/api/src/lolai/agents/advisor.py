@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 from ollama import chat
 from pydantic import BaseModel
 
 from lolai.domain.enums.model import Model
 from lolai.integrations.riot.models import ChampSelect, LiveGame
-from lolai.integrations.riot.opgg.opgg import connect, match_name
+from lolai.integrations.riot.champions import champ_slug
+from lolai.integrations.riot.opgg.opgg import connect, match_name, rank_cards
 
 
 # ---- champion selection ----------------------------------------------------------------
@@ -72,80 +75,113 @@ def format_champ_select(a: ChampAdvice) -> str:
 
 
 # ---- augments -----------------------------------------------------------------------------
+# Three stages so the player sees something quickly:
+#   1. read_augment_names  - small vision call, names only            (a few seconds)
+#   2. rank_augments       - database lookup + fuzzy verification     (instant)
+#   3. stream_augment_advice - text-only model, streamed token by token (slow, shown progressively)
 
-class AugmentOption(BaseModel):
-    name: str
-    score: int  # 1-10 for this champion and matchup
-    pros: str
-    cons: str
-
-
-class AugmentAdvice(BaseModel):
-    options: list[AugmentOption]
-    best: str
-    reason: str
+# Your GPU cannot hold the vision model and the text model at once, so using two models makes every
+# F8 press evict one and reload the other (measured: 6.5s). The vision model also writes the advice.
+AUGMENT_MODEL = Model.QWEN_VL.value
+KEEP_ALIVE = "30m"  # Ollama's default is 5 minutes, which would unload the model mid-game
 
 
-_AUGMENT_SYSTEM = (
-    "You are a League of Legends augment (Arena/ARAM Mayhem) expert. The image is a screenshot "
-    "showing augment cards to choose from. Read each card's name and text exactly, then rate each "
-    "for the player's champion, items and the teams. If no augment cards are visible, return an "
-    "empty options list and best = ''."
+def warm_up(model: str = AUGMENT_MODEL) -> None:
+    """Load the model into memory ahead of time (e.g. during the loading screen)."""
+    chat(model=model, messages=[], keep_alive=KEEP_ALIVE)
+
+
+class CardNames(BaseModel):
+    names: list[str]
+
+
+_READ_SYSTEM = (
+    "The image is a League of Legends screenshot. If augment cards to choose from are visible, list the "
+    "name printed on each card exactly as written, left to right. Return only names, nothing else. "
+    "If no augment cards are visible, return an empty list."
 )
 
 
-def _augment_prompt(game: LiveGame | None, owned: list[str]) -> str:
-    chosen = f"Augments I already chose (consider synergy): {', '.join(owned) or 'none yet'}\n"
-    if game is None:
-        return chosen + "Game context unavailable. Pick the generally strongest augment."
-    return chosen + (
-        f"My champion: {game.my_champion} (level {game.level})\n"
-        f"My items: {', '.join(i for i in game.my_items if i) or 'none'}\n"
-        f"Allies: {', '.join(game.allies)}\n"
-        f"Enemies: {', '.join(game.enemies)}"
-    )
-
-
-def advise_augments(screenshot: bytes, game: LiveGame | None, owned: list[str] | None = None) -> AugmentAdvice:
+def read_augment_names(screenshot: bytes) -> list[str]:
     res = chat(
-        model=Model.QWEN_VL.value,
+        model=AUGMENT_MODEL,
+        keep_alive=KEEP_ALIVE,
         messages=[
-            {"role": "system", "content": _AUGMENT_SYSTEM},
-            {"role": "user", "content": _augment_prompt(game, owned or []), "images": [screenshot]},
+            {"role": "system", "content": _READ_SYSTEM},
+            {"role": "user", "content": "List the augment card names.", "images": [screenshot]},
         ],
-        format=AugmentAdvice.model_json_schema(),
+        format=CardNames.model_json_schema(),
     )
-    return _verify_augments(AugmentAdvice.model_validate_json(res.message.content))
+    return CardNames.model_validate_json(res.message.content).names
 
 
-def _verify_augments(advice: AugmentAdvice) -> AugmentAdvice:
-    """Keep only cards whose name matches an augment in the database (name or name_norm).
-
-    Anything else the vision model "read" is not an augment (or was misread) and is dropped."""
+def rank_augments(names: list[str], game: LiveGame | None) -> list[dict]:
+    """Keep only names that match a known augment (exact, or fuzzy for misreads), then rank them
+    for the player's champion from the database. Unknown text is not an augment and is dropped."""
     con = connect()
     try:
         if not con.execute("SELECT 1 FROM augments LIMIT 1").fetchone():
-            raise RuntimeError("Augment database is empty. Run: python -m lolai.integrations.riot.opgg.opgg load")
-        kept: dict[str, AugmentOption] = {}
-        for o in advice.options:
-            name = match_name(con, o.name)
-            if name and name not in kept:
-                kept[name] = o.model_copy(update={"name": name})
-        best = match_name(con, advice.best)
+            raise RuntimeError("Augment database is empty. Run: python -m lolai.integrations.riot.opgg.opgg augments")
+        verified = list(dict.fromkeys(n for n in (match_name(con, x) for x in names) if n))
+        slug = champ_slug(game.my_champion) if game else None
+        return rank_cards(con, slug, verified)
     finally:
         con.close()
-    if not kept:
-        return AugmentAdvice(options=[], best="", reason="")
-    if best not in kept:  # the model's pick was dropped: fall back to the top-scored verified card
-        top = max(kept.values(), key=lambda o: o.score)
-        return AugmentAdvice(options=list(kept.values()), best=top.name, reason=top.pros)
-    return AugmentAdvice(options=list(kept.values()), best=best, reason=advice.reason)
 
 
-def format_augments(a: AugmentAdvice) -> str:
-    if not a.options:
+TIER_LETTERS = "SABCDE"  # op.gg tier 0..5
+
+
+def tier_letter(tier: int | None) -> str:
+    if tier is None:
+        return "?"
+    return TIER_LETTERS[tier] if 0 <= tier < len(TIER_LETTERS) else str(tier)
+
+
+def format_ranking(cards: list[dict], game: LiveGame | None) -> str:
+    if not cards:
         return "No known augment cards detected. Press F8 when the cards are on screen."
-    lines = [f"★ PICK: {a.best}", f"  {a.reason}", ""]
-    for o in sorted(a.options, key=lambda o: -o.score):
-        lines += [f"{o.name}  [{o.score}/10]", f"  + {o.pros}", f"  - {o.cons}", ""]
-    return "\n".join(lines).rstrip()
+    who = game.my_champion if game else "unknown champion"
+    lines = [f"Augment tiers for {who}  (left to right)", ""]
+    for i, c in enumerate(cards, 1):
+        grade = "no data for this champion" if c["tier"] is None else f"{tier_letter(c['tier'])} tier"
+        lines.append(f"{i}. {c['name']}  -  {grade}")
+    return "\n".join(lines) + "\n\n— AI recommendation —\n"
+
+
+_ADVICE_SYSTEM = (
+    "You are a League of Legends ARAM Mayhem augment coach. The op.gg tier for each card on this champion "
+    "(S best, then A, B, C, D, E worst) is a strong prior; only deviate from it with a concrete reason such "
+    "as synergy with the player's items or chosen augments, or the enemy team. Be brief: a one-line verdict "
+    "naming the pick, then one short line per card. Under 120 words."
+)
+
+
+def _advice_prompt(cards: list[dict], game: LiveGame | None, owned: list[str]) -> str:
+    lines = [f"Augments already chosen: {', '.join(owned) or 'none yet'}"]
+    if game:
+        lines += [f"Champion: {game.my_champion} (level {game.level})",
+                  f"Items: {', '.join(i for i in game.my_items if i) or 'none'}",
+                  f"Allies: {', '.join(game.allies)}", f"Enemies: {', '.join(game.enemies)}"]
+    lines.append("Cards on offer, in on-screen order (left to right):")
+    for c in cards:
+        grade = "no data" if c["tier"] is None else f"{tier_letter(c['tier'])} tier"
+        lines.append(f"{cards.index(c) + 1}. {c['name']} [{grade}]: {c['desc']}")
+    return "\n".join(lines)
+
+
+def stream_augment_advice(cards: list[dict], game: LiveGame | None, owned: list[str] | None = None) -> Iterator[str]:
+    """Yields the recommendation in chunks as the model writes it. Text only: the card names and
+    descriptions come from the database, so no image is needed."""
+    stream = chat(
+        model=AUGMENT_MODEL,
+        keep_alive=KEEP_ALIVE,
+        messages=[
+            {"role": "system", "content": _ADVICE_SYSTEM},
+            {"role": "user", "content": _advice_prompt(cards, game, owned or [])},
+        ],
+        stream=True,
+    )
+    for part in stream:
+        if part.message.content:
+            yield part.message.content

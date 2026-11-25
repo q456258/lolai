@@ -2,12 +2,20 @@
 
 Run:  python -m lolai.integrations.riot.overlay
 Press F8 (or the button) while augment cards are on screen.
+
+Only a region of the screen is sent to the vision model. Check that it covers your augment cards:
+      python -m lolai.integrations.riot.overlay --save-crop     (open the augment screen, wait 5s)
+      -> writes data/augment_crop.jpg. Adjust with e.g.  AUGMENT_REGION=0.2,0.2,0.8,0.8  (left,top,right,bottom
+         as fractions of the screen).
 Play League in Borderless or Windowed mode so the overlay can sit on top.
 """
 
 from __future__ import annotations
 
 import io
+import os
+import sys
+from concurrent.futures import ThreadPoolExecutor
 import queue
 import threading
 import time
@@ -26,15 +34,34 @@ HOTKEY = "<f8>"
 POLL_SECONDS = 1.5
 SETTLE_SECONDS = 2.0   # wait for champ select to stop changing before asking the model
 WIDTH, HEIGHT, BAR_HEIGHT = 440, 520, 28
+IMAGE_WIDTH = 900      # max width of what the model sees; measured: 1600px took 2.7s, 1024px 1.6s
 
 
-def capture_screen() -> bytes:
-    """Primary monitor as a JPEG, scaled to 1600px wide (plenty for reading cards)."""
+def _region_from_env() -> tuple[float, float, float, float]:
+    """(left, top, right, bottom) as fractions of the screen where augment cards appear."""
+    default = (0.10, 0.15, 0.90, 0.85)  # deliberately wide: a guess until calibrated with --save-crop
+    try:
+        l, t, r, b = (float(x) for x in os.environ["AUGMENT_REGION"].split(","))
+        return (l, t, r, b) if 0 <= l < r <= 1 and 0 <= t < b <= 1 else default
+    except (KeyError, ValueError):
+        return default
+
+
+AUGMENT_REGION = _region_from_env()
+
+
+def capture_screen(region: tuple[float, float, float, float] = AUGMENT_REGION) -> bytes:
+    """The augment-card part of the primary monitor as a JPEG, scaled down to at most IMAGE_WIDTH.
+
+    A smaller image means fewer tokens for the vision model, and cropping keeps more detail per pixel."""
     with mss.mss() as sct:
-        raw = sct.grab(sct.monitors[1])
+        mon = sct.monitors[1]
+        l, t, r, b = region
+        raw = sct.grab({"left": mon["left"] + int(mon["width"] * l), "top": mon["top"] + int(mon["height"] * t),
+                        "width": int(mon["width"] * (r - l)), "height": int(mon["height"] * (b - t))})
     img = Image.frombytes("RGB", raw.size, raw.rgb)
-    if img.width > 1600:
-        img = img.resize((1600, round(img.height * 1600 / img.width)), Image.LANCZOS)
+    if img.width > IMAGE_WIDTH:
+        img = img.resize((IMAGE_WIDTH, round(img.height * IMAGE_WIDTH / img.width)), Image.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=85)
     return buf.getvalue()
@@ -148,6 +175,17 @@ class Overlay:
                 kind, value = self.ui_queue.get_nowait()
                 if kind == "status":
                     self.status.configure(text=value)
+                elif kind == "hide":
+                    self.root.attributes("-alpha", 0.0)
+                    self.root.update_idletasks()
+                    value.set()
+                elif kind == "show":
+                    self.root.attributes("-alpha", 0.93)
+                elif kind == "append":
+                    self.text.configure(state="normal")
+                    self.text.insert("end", value)
+                    self.text.configure(state="disabled")
+                    self.text.see("end")
                 elif kind == "offered":
                     self._show_offered(value)
                 elif kind == "new_game":
@@ -167,6 +205,9 @@ class Overlay:
     def set_text(self, s: str) -> None:
         self.ui_queue.put(("text", s))
 
+    def append_text(self, s: str) -> None:
+        self.ui_queue.put(("append", s))
+
     def set_offered(self, names: list[str]) -> None:
         self.ui_queue.put(("offered", names))
 
@@ -180,20 +221,53 @@ class Overlay:
         self.busy_augments.set()
         threading.Thread(target=self._augments_worker, daemon=True).start()
 
+    def _capture_without_overlay(self) -> bytes:
+        """Hide this window while grabbing the screen: it shows earlier augment names, which the
+        vision model would otherwise read as cards."""
+        hidden = threading.Event()
+        self.ui_queue.put(("hide", hidden))
+        hidden.wait(timeout=1.0)
+        time.sleep(0.05)  # let the window manager repaint without us
+        try:
+            return capture_screen()
+        finally:
+            self.ui_queue.put(("show", None))
+
     def _augments_worker(self) -> None:
         try:
+            self.set_status("Taking screenshot…")
+            shot = self._capture_without_overlay()  # grab first: the cards must still be on screen
+
             self.set_status("Reading augment cards…")
-            shot = capture_screen()  # grab first: the cards must still be on screen
-            t0 = time.time()
-            advice = advisor.advise_augments(shot, read_live_game(), list(self.picked))
-            self.set_text(advisor.format_augments(advice))
-            self.set_offered([o.name for o in advice.options])
-            self.set_status(f"Augments analysed in {time.time() - t0:.0f}s")
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                game_future = pool.submit(read_live_game)  # runs while the vision call is busy
+                names = advisor.read_augment_names(shot)   # small vision call
+                game = game_future.result()                # almost always already finished
+
+            cards = advisor.rank_augments(names, game)  # database ranking, shown immediately
+            self.set_text(advisor.format_ranking(cards, game))
+            if not cards:
+                self.set_status("No known augment cards found")
+                return
+            self.set_offered([c["name"] for c in cards])
+            self.set_status("Writing AI recommendation…")
+
+            # AI recommendation, appended as it is generated
+            for chunk in advisor.stream_augment_advice(cards, game, list(self.picked)):
+                self.append_text(chunk)
+            self.set_status("Augment analysis done")
         except Exception as e:  # show any failure in the overlay rather than dying silently
             self.set_status("Augment analysis failed")
             self.set_text(f"Error: {e}")
         finally:
             self.busy_augments.clear()
+
+
+def _warm_augment_model() -> None:
+    try:
+        advisor.warm_up()
+    except Exception:
+        pass  # warming is only an optimisation; the first F8 will just load it instead
 
 
 def champ_select_loop(ui: Overlay) -> None:
@@ -206,6 +280,9 @@ def champ_select_loop(ui: Overlay) -> None:
             phase = lcu.phase()
             if phase == "ChampSelect" and prev_phase != "ChampSelect":
                 ui.new_game()  # a new game is starting: forget last game's augments
+            if phase == "InProgress" and prev_phase != "InProgress":
+                # load the augment model now (loading screen) so the first F8 doesn't pay for it
+                threading.Thread(target=_warm_augment_model, daemon=True).start()
             if phase is not None:
                 prev_phase = phase
             if phase is None:
@@ -234,7 +311,24 @@ def champ_select_loop(ui: Overlay) -> None:
         time.sleep(POLL_SECONDS)
 
 
+def save_crop() -> None:
+    """Calibration: capture the augment region after a short delay and save it for inspection."""
+    from pathlib import Path
+    out = Path(__file__).resolve().parents[6] / "data" / "augment_crop.jpg"
+    print(f"Region (left, top, right, bottom): {AUGMENT_REGION}. Open the augment screen now…")
+    for i in range(5, 0, -1):
+        print(i, end=" ", flush=True)
+        time.sleep(1)
+    data = capture_screen()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(data)
+    img = Image.open(io.BytesIO(data))
+    print(f"\nSaved {img.width}x{img.height} -> {out}\nAll three cards fully inside? If not, widen AUGMENT_REGION.")
+
+
 def main() -> None:
+    if "--save-crop" in sys.argv:
+        return save_crop()
     ui = Overlay()
     threading.Thread(target=champ_select_loop, args=(ui,), daemon=True).start()
     # request_augments only spawns a thread, so it is safe to call from the hotkey thread.
