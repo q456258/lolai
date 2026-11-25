@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from lolai.domain.enums.model import Model
 from lolai.integrations.riot.models import ChampSelect, LiveGame
 from lolai.integrations.riot.champions import champ_slug
+from lolai.integrations.riot import mayhemmeta
 from lolai.integrations.riot.opgg.opgg import connect, match_name, rank_cards
 
 
@@ -115,16 +116,23 @@ def read_augment_names(screenshot: bytes) -> list[str]:
     return CardNames.model_validate_json(res.message.content).names
 
 
-def rank_augments(names: list[str], game: LiveGame | None) -> list[dict]:
+def rank_augments(names: list[str], game: LiveGame | None, owned: list[str] | None = None) -> list[dict]:
     """Keep only names that match a known augment (exact, or fuzzy for misreads), then rank them
-    for the player's champion from the database. Unknown text is not an augment and is dropped."""
+    for the player's champion from the database. Unknown text is not an augment and is dropped.
+    Each card also gets card["mm"]: mayhemmeta win rates (see mayhemmeta.card_stats)."""
     con = connect()
     try:
         if not con.execute("SELECT 1 FROM augments LIMIT 1").fetchone():
             raise RuntimeError("Augment database is empty. Run: python -m lolai.integrations.riot.opgg.opgg augments")
         verified = list(dict.fromkeys(n for n in (match_name(con, x) for x in names) if n))
         slug = champ_slug(game.my_champion) if game else None
-        return rank_cards(con, slug, verified)
+        cards = rank_cards(con, slug, verified)
+        mayhemmeta.connect().close()  # creates the mm_ tables if the scraper never ran
+        stats = mayhemmeta.card_stats(con, [c["name"] for c in cards],
+                                      game.my_champion if game else None, owned)
+        for c in cards:
+            c["mm"] = stats.get(c["name"], {})
+        return cards
     finally:
         con.close()
 
@@ -138,22 +146,124 @@ def tier_letter(tier: int | None) -> str:
     return TIER_LETTERS[tier] if 0 <= tier < len(TIER_LETTERS) else str(tier)
 
 
-def format_ranking(cards: list[dict], game: LiveGame | None) -> str:
+def _pct(v: float | None, signed: bool = False) -> str:
+    if v is None:
+        return "–"
+    return f"{v:+.1f}" if signed else f"{v:.1f}%"
+
+
+def card_stat_lines(c: dict, who: str) -> list[str]:
+    """The six stats for one card, as display lines (shared by the overlay and the AI prompt)."""
+    mm = c.get("mm") or {}
+    if mm.get("win_rate") is None:
+        return ["   no mayhemmeta data (run: python -m lolai.integrations.riot.mayhemmeta load)"]
+    lines = [f"   Tier {mm.get('tier') or '?'}  ·  Win rate {_pct(mm['win_rate'])}  ·  "
+             f"Pick rate {_pct(mm.get('pick_rate'))}"]
+    if mm.get("champ_win_rate") is not None:
+        lines.append(f"   On {who}: {_pct(mm['champ_win_rate'])} ({_pct(mm.get('champ_diff'), True)} vs without, "
+                     f"{mm.get('champ_games', 0):,} games, picked {_pct(mm.get('champ_pick_rate'))})")
+    else:
+        lines.append(f"   On {who}: no games")
+    if mm.get("synergy"):
+        lines.append("   Synergy: " + "  ·  ".join(
+            f"{s['partner']} {_pct(s['synergy'], True)} ({_pct(s['win_rate'])})" for s in mm["synergy"]))
+    if mm.get("slots"):
+        cur = mm.get("current_slot")
+        lines.append("   By slot: " + "  ".join(
+            (f"▶{s['slot']}: {_pct(s['win_rate'])}" if s["slot"] == cur else f"{s['slot']}: {_pct(s['win_rate'])}")
+            for s in mm["slots"]))
+    return lines
+
+
+TABLE_SEP = "│"   # the overlay shows lines containing this in a monospace font
+# Column widths: name, tier, win, pick, slot, synergy. Total ~57 chars fits the 440px overlay in
+# Consolas 9pt (~7px per char).
+_WIDTHS = (17, 4, 6, 6, 4, 4)
+
+
+def _table_row(cells: list[str]) -> str:
+    name, *rest = cells
+    w = _WIDTHS[0]
+    name = name if len(name) <= w else name[:w - 1] + "…"
+    return f" {name:<{w}} {TABLE_SEP} " + f" {TABLE_SEP} ".join(
+        f"{c:>{width}}" for c, width in zip(rest, _WIDTHS[1:]))
+
+
+def _table_rule() -> str:
+    return "─" * (_WIDTHS[0] + 2) + "┼" + "┼".join("─" * (w + 2) for w in _WIDTHS[1:])
+
+
+def diff_label(diff: float | None) -> str:
+    """A win-rate difference in whole points rounded toward zero: 5.7 -> "+5%", -5.7 -> "-5%",
+    0.4 -> "0%", None -> "?"."""
+    if diff is None:
+        return "?"
+    points = int(diff)  # truncates toward zero, so a gap is never overstated
+    return f"{points:+d}%" if points else "0%"
+
+
+def synergy_label(mm: dict, owned: list[str]) -> str:
+    """Total synergy with the augments already owned. "-" when nothing is owned yet, "?" when
+    there is no pair data with any owned augment (unknown, not bad)."""
+    if not owned:
+        return "-"
+    pairs = mm.get("synergy") or []
+    return diff_label(sum(p["synergy"] for p in pairs if p["synergy"] is not None)) if pairs else "?"
+
+
+def _card_row(c: dict, slot: int, owned: list[str]) -> tuple[list[str], bool]:
+    """[name, tier, win rate, pick rate, slot, synergy] for one card, and whether any cell fell back
+    to the all-champion number (marked with *).
+      tier:      op.gg tier on this champion, else mayhemmeta overall tier
+      win rate:  win rate on this champion, else overall win rate
+      pick rate: pick rate on this champion, else overall pick rate
+      slot:      current slot's win rate vs the augment's average, e.g. "+5%" (all champions)
+      synergy:   summed synergy with the owned augments, e.g. "+4%" (all champions)"""
+    mm = c.get("mm") or {}
+    fallback = False
+
+    def pick(primary, overall, fmt):
+        nonlocal fallback
+        if primary is not None:
+            return fmt(primary)
+        if overall is not None:
+            fallback = True
+            return fmt(overall) + "*"
+        return "–"
+
+    slot_diff = next((s["diff"] for s in mm.get("slots", []) if s["slot"] == slot), None)
+    tier = pick(tier_letter(c["tier"]) if c["tier"] is not None else None, mm.get("tier"), str)
+    win = pick(mm.get("champ_win_rate"), mm.get("win_rate"), lambda v: f"{v:.1f}%")
+    pick_rate = pick(mm.get("champ_pick_rate"), mm.get("pick_rate"), lambda v: f"{v:.1f}%")
+    return [c["name"], tier, win, pick_rate, diff_label(slot_diff), synergy_label(mm, owned)], fallback
+
+
+def format_ranking(cards: list[dict], game: LiveGame | None, owned: list[str] | None = None) -> str:
     if not cards:
         return "No known augment cards detected. Press F8 when the cards are on screen."
     who = game.my_champion if game else "unknown champion"
-    lines = [f"Augment tiers for {who}  (left to right)", ""]
-    for i, c in enumerate(cards, 1):
-        grade = "no data for this champion" if c["tier"] is None else f"{tier_letter(c['tier'])} tier"
-        lines.append(f"{i}. {c['name']}  -  {grade}")
+    owned = owned or []
+    slot = min(len(owned) + 1, 4)
+    rows = [_card_row(c, slot, owned) for c in cards]
+    lines = [f"{who}  ·  augment slot {slot}", "",
+             _table_row(["Augment", "Tier", "Win", "Pick", "Slot", "Syn"]), _table_rule(),
+             *(_table_row(cells) for cells, _ in rows), ""]
+    if any(fb for _, fb in rows):
+        lines.append(f"* overall: no {who} data")
+    lines.append(f"Slot: win rate in slot {slot} vs the augment's average")
+    lines.append("Syn: extra win rate with " + (", ".join(owned) if owned else "owned augments (none yet)")
+                 + "  ? = no data")
     return "\n".join(lines) + "\n\n— AI recommendation —\n"
 
 
 _ADVICE_SYSTEM = (
-    "You are a League of Legends ARAM Mayhem augment coach. The op.gg tier for each card on this champion "
-    "(S best, then A, B, C, D, E worst) is a strong prior; only deviate from it with a concrete reason such "
-    "as synergy with the player's items or chosen augments, or the enemy team. Be brief: a one-line verdict "
-    "naming the pick, then one short line per card. Under 120 words."
+    "You are a League of Legends ARAM Mayhem augment coach. The strongest evidence is the card's win rate "
+    "on this champion and its change vs games without it (needs a few hundred games to trust), then synergy "
+    "with augments already owned (+/- already corrects for each augment's own strength), then the op.gg "
+    "tier and overall win rate. Win rate by slot tells you whether it is better early or late (▶ marks the "
+    "current slot). Missing synergy data means unknown, not bad. Only go against the numbers with a "
+    "concrete reason such as items or the enemy team. Be brief: a one-line verdict naming the pick, then "
+    "one short line per card. Under 120 words."
 )
 
 
@@ -164,9 +274,11 @@ def _advice_prompt(cards: list[dict], game: LiveGame | None, owned: list[str]) -
                   f"Items: {', '.join(i for i in game.my_items if i) or 'none'}",
                   f"Allies: {', '.join(game.allies)}", f"Enemies: {', '.join(game.enemies)}"]
     lines.append("Cards on offer, in on-screen order (left to right):")
-    for c in cards:
+    who = game.my_champion if game else "this champion"
+    for i, c in enumerate(cards, 1):
         grade = "no data" if c["tier"] is None else f"{tier_letter(c['tier'])} tier"
-        lines.append(f"{cards.index(c) + 1}. {c['name']} [{grade}]: {c['desc']}")
+        lines.append(f"{i}. {c['name']} [op.gg {grade}]: {c['desc']}")
+        lines += card_stat_lines(c, who)
     return "\n".join(lines)
 
 

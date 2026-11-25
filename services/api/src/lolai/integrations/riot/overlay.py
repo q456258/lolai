@@ -104,6 +104,7 @@ class Overlay:
         self.text = tk.Text(self.root, wrap="word", bg="#14161f", fg="#e6e8f2", bd=0,
                             font=("Segoe UI", 10), padx=10, pady=8, state="disabled")
         self.text.pack(fill="both", expand=True)
+        self.text.tag_configure("table", font=("Consolas", 9), wrap="none")
         self._show_text("Champion advice appears automatically in champ select.\n\n"
                         "When augment cards show up in game, press F8, then click the one you took.")
         # "I picked this one" buttons; packed above the text only while cards are on offer.
@@ -132,7 +133,10 @@ class Overlay:
     def _show_text(self, s: str) -> None:
         self.text.configure(state="normal")
         self.text.delete("1.0", "end")
-        self.text.insert("1.0", s)
+        # Table lines (advisor.format_ranking) need a monospace font for the columns to line up.
+        for line in s.splitlines(keepends=True):
+            is_table = advisor.TABLE_SEP in line or "┼" in line
+            self.text.insert("end", line, ("table",) if is_table else ())
         self.text.configure(state="disabled")
 
     # ---- recorded augments
@@ -244,8 +248,9 @@ class Overlay:
                 names = advisor.read_augment_names(shot)   # small vision call
                 game = game_future.result()                # almost always already finished
 
-            cards = advisor.rank_augments(names, game)  # database ranking, shown immediately
-            self.set_text(advisor.format_ranking(cards, game))
+            owned = list(self.picked)
+            cards = advisor.rank_augments(names, game, owned)  # database ranking, shown immediately
+            self.set_text(advisor.format_ranking(cards, game, owned))
             if not cards:
                 self.set_status("No known augment cards found")
                 return
@@ -253,7 +258,7 @@ class Overlay:
             self.set_status("Writing AI recommendation…")
 
             # AI recommendation, appended as it is generated
-            for chunk in advisor.stream_augment_advice(cards, game, list(self.picked)):
+            for chunk in advisor.stream_augment_advice(cards, game, owned):
                 self.append_text(chunk)
             self.set_status("Augment analysis done")
         except Exception as e:  # show any failure in the overlay rather than dying silently
