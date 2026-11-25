@@ -116,6 +116,43 @@ def read_augment_names(screenshot: bytes) -> list[str]:
     return CardNames.model_validate_json(res.message.content).names
 
 
+class CardName(BaseModel):
+    name: str
+
+
+_READ_ONE_SYSTEM = (
+    "The image is the title area of ONE League of Legends augment card. Return the augment name "
+    "printed on it exactly as written (it may wrap onto two lines; join them with a space). "
+    "Ignore the small tag under the name (Damage, Resilience, Quest...). If no name is readable, "
+    "return an empty string."
+)
+
+
+def read_card_name(card: bytes) -> str | None:
+    """The name on a single augment card (a crop of its title area), or None if unreadable.
+    Much faster than read_augment_names on a whole screenshot."""
+    res = chat(
+        model=AUGMENT_MODEL,
+        keep_alive=KEEP_ALIVE,
+        messages=[
+            {"role": "system", "content": _READ_ONE_SYSTEM},
+            {"role": "user", "content": "What is the augment name on this card?", "images": [card]},
+        ],
+        format=CardName.model_json_schema(),
+    )
+    name = CardName.model_validate_json(res.message.content).name.strip()
+    return name or None
+
+
+def verify_augment_names(names: list[str]) -> list[str]:
+    """Canonical names for the ones that are known augments (exact, or fuzzy for misreads)."""
+    con = connect()
+    try:
+        return list(dict.fromkeys(n for n in (match_name(con, x) for x in names) if n))
+    finally:
+        con.close()
+
+
 def rank_augments(names: list[str], game: LiveGame | None, owned: list[str] | None = None) -> list[dict]:
     """Keep only names that match a known augment (exact, or fuzzy for misreads), then rank them
     for the player's champion from the database. Unknown text is not an augment and is dropped.
@@ -193,6 +230,26 @@ def _table_rule() -> str:
     return "─" * (_WIDTHS[0] + 2) + "┼" + "┼".join("─" * (w + 2) for w in _WIDTHS[1:])
 
 
+def _slot(owned: list[str]) -> int:
+    return min(len(owned) + 1, 4)
+
+
+def combined_win_rate(c: dict, owned: list[str]) -> tuple[float | None, bool]:
+    """One win rate for a card: its win rate on this champion (overall when the champion has no
+    data), plus how much better/worse it does in the current slot, plus its synergy with the
+    augments already owned. Missing slot or synergy data adds 0. Returns (rate, used_overall)."""
+    mm = c.get("mm") or {}
+    base, fallback = mm.get("champ_win_rate"), False
+    if base is None:
+        base, fallback = mm.get("win_rate"), True
+    if base is None:
+        return None, False
+    slot = _slot(owned)
+    slot_diff = next((s["diff"] for s in mm.get("slots", []) if s["slot"] == slot), None) or 0.0
+    synergy = sum(p["synergy"] for p in mm.get("synergy") or [] if p["synergy"] is not None) if owned else 0.0
+    return base + slot_diff + synergy, fallback
+
+
 def diff_label(diff: float | None) -> str:
     """A win-rate difference in whole points rounded toward zero: 5.7 -> "+5%", -5.7 -> "-5%",
     0.4 -> "0%", None -> "?"."""
@@ -211,9 +268,9 @@ def synergy_label(mm: dict, owned: list[str]) -> str:
     return diff_label(sum(p["synergy"] for p in pairs if p["synergy"] is not None)) if pairs else "?"
 
 
-def _card_row(c: dict, slot: int, owned: list[str]) -> tuple[list[str], bool]:
-    """[name, tier, win rate, pick rate, slot, synergy] for one card, and whether any cell fell back
-    to the all-champion number (marked with *).
+def _card_row(c: dict, owned: list[str]) -> tuple[list[str], bool]:
+    """Table row [name, tier, win rate, pick rate, slot, synergy] for one card, with each part
+    shown separately, and whether any cell fell back to the all-champion number (marked with *).
       tier:      op.gg tier on this champion, else mayhemmeta overall tier
       win rate:  win rate on this champion, else overall win rate
       pick rate: pick rate on this champion, else overall pick rate
@@ -231,11 +288,29 @@ def _card_row(c: dict, slot: int, owned: list[str]) -> tuple[list[str], bool]:
             return fmt(overall) + "*"
         return "–"
 
-    slot_diff = next((s["diff"] for s in mm.get("slots", []) if s["slot"] == slot), None)
+    slot_diff = next((s["diff"] for s in mm.get("slots", []) if s["slot"] == _slot(owned)), None)
     tier = pick(tier_letter(c["tier"]) if c["tier"] is not None else None, mm.get("tier"), str)
     win = pick(mm.get("champ_win_rate"), mm.get("win_rate"), lambda v: f"{v:.1f}%")
     pick_rate = pick(mm.get("champ_pick_rate"), mm.get("pick_rate"), lambda v: f"{v:.1f}%")
     return [c["name"], tier, win, pick_rate, diff_label(slot_diff), synergy_label(mm, owned)], fallback
+
+
+def card_label(c: dict, owned: list[str] | None = None) -> str:
+    """The label shown above a card in game, with ONE win rate (champion + slot + synergy, see
+    combined_win_rate): "S · 65.9% win · 6.9% pick". * = all-champion fallback."""
+    owned = owned or []
+    _, tier, _, pick, _, _ = _card_row(c, owned)[0]
+    rate, fallback = combined_win_rate(c, owned)
+    win = "–" if rate is None else f"{rate:.1f}%" + ("*" if fallback else "")
+    return f"{tier} · {win} win · {pick} pick"
+
+
+def best_card_index(cards: list[dict], owned: list[str] | None = None) -> int | None:
+    """The card with the highest combined win rate (champion + slot + synergy)."""
+    if not cards:
+        return None
+    scores = [combined_win_rate(c, owned or [])[0] for c in cards]
+    return max(range(len(cards)), key=lambda i: -1.0 if scores[i] is None else scores[i])
 
 
 def format_ranking(cards: list[dict], game: LiveGame | None, owned: list[str] | None = None) -> str:
@@ -243,8 +318,8 @@ def format_ranking(cards: list[dict], game: LiveGame | None, owned: list[str] | 
         return "No known augment cards detected. Press F8 when the cards are on screen."
     who = game.my_champion if game else "unknown champion"
     owned = owned or []
-    slot = min(len(owned) + 1, 4)
-    rows = [_card_row(c, slot, owned) for c in cards]
+    slot = _slot(owned)
+    rows = [_card_row(c, owned) for c in cards]
     lines = [f"{who}  ·  augment slot {slot}", "",
              _table_row(["Augment", "Tier", "Win", "Pick", "Slot", "Syn"]), _table_rule(),
              *(_table_row(cells) for cells, _ in rows), ""]
@@ -253,6 +328,7 @@ def format_ranking(cards: list[dict], game: LiveGame | None, owned: list[str] | 
     lines.append(f"Slot: win rate in slot {slot} vs the augment's average")
     lines.append("Syn: extra win rate with " + (", ".join(owned) if owned else "owned augments (none yet)")
                  + "  ? = no data")
+    lines.append("In-game labels show Win + Slot + Syn as one number.")
     return "\n".join(lines) + "\n\n— AI recommendation —\n"
 
 
